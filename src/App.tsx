@@ -1,12 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import {
-  ThemeProvider,
-  CssBaseline,
-  AppBar,
-  Toolbar,
-  Typography,
-  Container,
-} from "@mui/material";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { ThemeProvider, CssBaseline } from "@mui/material";
 import { createTheme } from "@mui/material/styles";
 import Support from "./pages/Support";
 import Layout from "./components/Layout";
