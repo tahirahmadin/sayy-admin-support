@@ -39,7 +39,7 @@ const Support: React.FC = () => {
     }
 
     // Create new WebSocket connection
-    const wsUrl = `${backendSocketUrl}/socket.io/?client-id="support"`;
+    const wsUrl = `${backendSocketUrl}/socket.io/?client-id=support`;
     console.log("Connecting to WebSocket:", wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
