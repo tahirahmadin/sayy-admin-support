@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { getAdminSupportLogs, updateAdminChatLog } from "../lib/serverActions";
+import { backendSocketUrl } from "../utils/constants";
 
 const CHATS_PER_PAGE = 5;
 const WS_RECONNECT_DELAY = 2000;
@@ -38,9 +39,7 @@ const Support: React.FC = () => {
     }
 
     // Create new WebSocket connection
-    const wsUrl = `${import.meta.env.VITE_WS_URL}/admin/support?clientId=${
-      selectedLog.clientId
-    }`;
+    const wsUrl = `${backendSocketUrl}/socket.io/?client-id="support"`;
     console.log("Connecting to WebSocket:", wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -304,7 +303,7 @@ const Support: React.FC = () => {
                 <button
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleSendMessage}
-                  disabled={!messageInput.trim() || !isOnline}
+                  disabled={!messageInput.trim()}
                 >
                   Send
                 </button>
