@@ -8,7 +8,7 @@ const WS_RECONNECT_DELAY = 2000;
 interface Message {
   sender: string;
   content: string;
-  timestamp: string;
+  timestamp: Date;
 }
 
 interface ChatLog {
@@ -70,13 +70,18 @@ const Support: React.FC = () => {
         const data = JSON.parse(event.data);
         console.log("Received message:", data);
 
-        if (data.type === "new_message") {
+        if (data.clientId && data.message && data.type === "chatUpdated") {
           // Update the selected log with the new message
+          const newMessage: Message = {
+            content: data.message.content,
+            sender: data.message.sender,
+            timestamp: new Date(data.message.timestamp),
+          };
           setSelectedLog((prev) => {
             if (!prev) return null;
             return {
               ...prev,
-              userLogs: [...prev.userLogs, data.message],
+              userLogs: [...prev.userLogs, newMessage],
             };
           });
 
