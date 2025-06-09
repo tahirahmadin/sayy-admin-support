@@ -2,25 +2,152 @@ import React, { useState, useRef, useEffect } from "react";
 import { getAdminSupportLogs, updateAdminChatLog } from "../lib/serverActions";
 
 const CHATS_PER_PAGE = 5;
+const WS_RECONNECT_DELAY = 2000;
+
+interface Message {
+  sender: string;
+  content: string;
+  timestamp: string;
+}
+
+interface ChatLog {
+  _id: string;
+  clientId: string;
+  chatTitle: string;
+  userLogs: Message[];
+}
 
 const Support: React.FC = () => {
   const [page, setPage] = useState(1);
-  const [chatLogs, setChatLogs] = useState<any[]>([]);
-  const [selectedLog, setSelectedLog] = useState<any | null>(null);
+  const [chatLogs, setChatLogs] = useState<ChatLog[]>([]);
+  const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [loading, setLoading] = useState(false);
   const [messageInput, setMessageInput] = useState("");
+  const [isOnline, setIsOnline] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const connectWebSocket = () => {
+    if (!selectedLog?.clientId) return;
+
+    // Close existing connection if any
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+
+    // Create new WebSocket connection
+    const wsUrl = `${import.meta.env.VITE_WS_URL}/admin/support?clientId=${
+      selectedLog.clientId
+    }`;
+    console.log("Connecting to WebSocket:", wsUrl);
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+      setIsOnline(true);
+    };
+
+    ws.onclose = (event) => {
+      console.log("WebSocket disconnected:", event.code, event.reason);
+      setIsOnline(false);
+
+      // Attempt to reconnect after delay
+      reconnectTimeoutRef.current = setTimeout(() => {
+        console.log("Attempting to reconnect...");
+        connectWebSocket();
+      }, WS_RECONNECT_DELAY);
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setIsOnline(false);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("Received message:", data);
+
+        if (data.type === "new_message") {
+          // Update the selected log with the new message
+          setSelectedLog((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              userLogs: [...prev.userLogs, data.message],
+            };
+          });
+
+          // Update the chat logs list
+          setChatLogs((prev) =>
+            prev.map((log) =>
+              log.clientId === selectedLog.clientId
+                ? { ...log, userLogs: [...log.userLogs, data.message] }
+                : log
+            )
+          );
+        }
+      } catch (err) {
+        console.error("Error parsing WebSocket message:", err);
+      }
+    };
+  };
 
   // Fetch chat logs on mount
   useEffect(() => {
-    setLoading(true);
-    getAdminSupportLogs()
-      .then((logs) => {
-        setChatLogs(logs || []);
-        setSelectedLog((logs && logs[0]) || null);
-      })
-      .finally(() => setLoading(false));
+    // Create new AbortController for this effect
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
+    const fetchLogs = async () => {
+      try {
+        setLoading(true);
+        const logs = await getAdminSupportLogs();
+        if (!signal.aborted) {
+          console.log("logs", logs);
+          setChatLogs(logs || []);
+          setSelectedLog((logs && logs[0]) || null);
+        }
+      } catch (error) {
+        if (!signal.aborted) {
+          console.error("Error fetching logs:", error);
+        }
+      } finally {
+        if (!signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchLogs();
+
+    // Cleanup function
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
+
+  // WebSocket connection when selected log changes
+  useEffect(() => {
+    if (selectedLog?.clientId) {
+      connectWebSocket();
+    }
+
+    // Cleanup on unmount or when selected log changes
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [selectedLog?.clientId]);
 
   // Pagination logic
   const totalPages = Math.ceil(chatLogs.length / CHATS_PER_PAGE);
@@ -69,8 +196,13 @@ const Support: React.FC = () => {
     <div className="h-[calc(100vh-4rem)] flex bg-gray-50">
       {/* Sidebar */}
       <div className="w-80 border-r border-gray-200 flex flex-col h-full bg-white">
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-800">Support Chats</h2>
+          <div
+            className={`w-2 h-2 rounded-full ${
+              isOnline ? "bg-green-500" : "bg-red-500"
+            }`}
+          />
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading ? (
@@ -172,7 +304,7 @@ const Support: React.FC = () => {
                 <button
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleSendMessage}
-                  disabled={!messageInput.trim()}
+                  disabled={!messageInput.trim() || !isOnline}
                 >
                   Send
                 </button>

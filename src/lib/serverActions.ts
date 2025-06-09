@@ -1,31 +1,118 @@
 import axios from "axios";
 
-const apiUrl = "https://kifortestapi.gobbl.ai";
+const apiUrl = import.meta.env.DEV
+  ? "/api" // Use proxy in development
+  : "https://kifortestapi.gobbl.ai"; // Use direct URL in production
+
+import CryptoJS from "crypto-js";
+
+// Encryption function
+export const getCipherText = (inputBodyData: any) => {
+  let secretKey = import.meta.env.VITE_ENCRYPTION_KEY;
+
+  const key = CryptoJS.enc.Utf8.parse(secretKey);
+
+  const encrypted = CryptoJS.AES.encrypt(JSON.stringify(inputBodyData), key, {
+    mode: CryptoJS.mode.ECB,
+  });
+
+  const encryptedText = encrypted.toString();
+
+  return { data: encryptedText };
+};
+
+// Get HMAC message
+const getHmacMessageFromBody = (inputBodyData: string) => {
+  const apiSecret = import.meta.env.VITE_HMAC_KEY;
+
+  if (apiSecret) {
+    const currentTimestamp = (Date.now() / 1000).toString();
+
+    const hmacHash = CryptoJS.HmacSHA256(
+      inputBodyData + currentTimestamp,
+      apiSecret
+    ).toString();
+
+    return {
+      hmacHash: hmacHash,
+      currentTimestamp: currentTimestamp,
+    };
+  } else {
+    return null;
+  }
+};
 
 export async function getAdminSupportLogs() {
   try {
-    const response = await axios.get(`${apiUrl}/admin/getSupportChatLogs`);
+    let url = `/api/admin/getSupportChatLogs`;
 
-    if (response.data.error) {
-      throw new Error(response.data.error);
+    // HMAC Response
+    let hmacResponse = getHmacMessageFromBody("");
+    if (!hmacResponse) {
+      return null;
     }
-    return response.data.result;
+    let axiosHeaders = {
+      HMAC: hmacResponse.hmacHash,
+      Timestamp: hmacResponse.currentTimestamp,
+    };
+
+    let response = await axios
+      .get(url, { headers: axiosHeaders })
+      .then((res) => res.data);
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+    return response.result;
   } catch (error) {
     console.error("Error fetching admin chat logs:", error);
     throw error;
   }
 }
 
-/**
- * Update (append) a new message to the admin/support chat log
- * @param {Object} params - { newUserLog: Message[], userId: string }
- */
-export async function updateAdminChatLog(params: {
-  newUserLog: any[];
+interface Message {
+  sender: string;
+  content: string;
+  timestamp: string;
+}
+
+interface UpdateChatLogParams {
+  newUserLog: Message[];
   clientId: string;
-}) {
+}
+
+export async function updateAdminChatLog(params: UpdateChatLogParams) {
   try {
-    const response = await axios.post(`${apiUrl}/admin/updateChatLog`, params);
+    const url = `${apiUrl}/admin/updateChatLog`;
+
+    // Get encrypted data
+    const encryptedData = getCipherText(params);
+
+    // Get HMAC authentication
+    let hmacResponse = getHmacMessageFromBody(JSON.stringify(encryptedData));
+    if (!hmacResponse) {
+      throw new Error("HMAC authentication failed: VITE_HMAC_KEY is not set");
+    }
+
+    const axiosHeaders = {
+      HMAC: hmacResponse.hmacHash,
+      Timestamp: hmacResponse.currentTimestamp,
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers":
+        "Content-Type, Authorization, HMAC, Timestamp",
+      "Content-Type": "application/json",
+    };
+
+    const response = await axios.post(url, encryptedData, {
+      headers: axiosHeaders,
+      withCredentials: true,
+    });
+
+    if (response.data.error) {
+      throw new Error(response.data.error);
+    }
+
     return response.data;
   } catch (error) {
     console.error("Error updating admin chat log:", error);
