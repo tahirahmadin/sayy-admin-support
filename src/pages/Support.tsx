@@ -32,14 +32,15 @@ const Support: React.FC = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const connectWebSocket = () => {
-    if (!selectedLog?.clientId) {
-      console.log("No clientId available, skipping WebSocket connection");
-      return;
-    }
-
     // Prevent multiple connection attempts
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log("WebSocket already connected, skipping new connection");
+      return;
+    }
+
+    // If we're already trying to connect, don't try again
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+      console.log("WebSocket connection in progress, skipping new connection");
       return;
     }
 
@@ -57,6 +58,8 @@ const Support: React.FC = () => {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
+      let connectionTimeout: NodeJS.Timeout;
+
       ws.onopen = () => {
         console.log("WebSocket connection established successfully");
         setIsOnline(true);
@@ -64,6 +67,10 @@ const Support: React.FC = () => {
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = undefined;
+        }
+        // Clear connection timeout
+        if (connectionTimeout) {
+          clearTimeout(connectionTimeout);
         }
       };
 
@@ -76,9 +83,20 @@ const Support: React.FC = () => {
         setIsOnline(false);
         wsRef.current = null;
 
-        // Only attempt to reconnect if the connection was lost unexpectedly
-        // and we're not already trying to reconnect
-        if (!reconnectTimeoutRef.current && event.code !== 1000) {
+        // Clear connection timeout
+        if (connectionTimeout) {
+          clearTimeout(connectionTimeout);
+        }
+
+        // Only attempt to reconnect if:
+        // 1. The connection was lost unexpectedly (not a clean close)
+        // 2. We're not already trying to reconnect
+        // 3. The component is still mounted
+        if (
+          !reconnectTimeoutRef.current &&
+          event.code !== 1000 &&
+          !event.wasClean
+        ) {
           console.log("Scheduling reconnection attempt...");
           reconnectTimeoutRef.current = setTimeout(() => {
             console.log("Executing scheduled reconnection...");
@@ -93,6 +111,14 @@ const Support: React.FC = () => {
         setIsOnline(false);
       };
 
+      // Set a connection timeout
+      connectionTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          console.log("WebSocket connection timeout");
+          ws.close();
+        }
+      }, 10000); // 10 second timeout
+
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -105,6 +131,8 @@ const Support: React.FC = () => {
               sender: data.message.sender,
               timestamp: new Date(data.message.timestamp),
             };
+
+            // Update the selected log if it matches
             setSelectedLog((prev) => {
               if (!prev || prev.clientId !== data.clientId) return prev;
               return {
@@ -120,12 +148,17 @@ const Support: React.FC = () => {
                 log.clientId === data.clientId
                   ? {
                       ...log,
-                      userLogs: [...log.userLogs, data.message],
+                      userLogs: [...log.userLogs, newMessage],
                       hasUnread: log.clientId !== selectedLog?.clientId,
                     }
                   : log
               )
             );
+
+            // Scroll to bottom when new message arrives
+            setTimeout(() => {
+              chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, 100);
           }
         } catch (err) {
           console.error("Error parsing WebSocket message:", err);
@@ -136,6 +169,25 @@ const Support: React.FC = () => {
       setIsOnline(false);
     }
   };
+
+  // WebSocket connection on component mount
+  useEffect(() => {
+    console.log("Initializing WebSocket connection");
+    connectWebSocket();
+
+    // Cleanup on unmount
+    return () => {
+      console.log("Cleaning up WebSocket connection");
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = undefined;
+      }
+      if (wsRef.current) {
+        wsRef.current.close(1000, "Component unmounting");
+        wsRef.current = null;
+      }
+    };
+  }, []); // Empty dependency array - only run on mount/unmount
 
   // Fetch chat logs on mount
   useEffect(() => {
@@ -173,27 +225,6 @@ const Support: React.FC = () => {
     };
   }, []);
 
-  // WebSocket connection when selected log changes
-  useEffect(() => {
-    console.log("Selected log changed, clientId:", selectedLog?.clientId);
-    if (selectedLog?.clientId) {
-      connectWebSocket();
-    }
-
-    // Cleanup on unmount or when selected log changes
-    return () => {
-      console.log("Cleaning up WebSocket connection");
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = undefined;
-      }
-      if (wsRef.current) {
-        wsRef.current.close(1000, "Component unmounting");
-        wsRef.current = null;
-      }
-    };
-  }, [selectedLog?.clientId]);
-
   // Pagination logic
   const totalPages = Math.ceil(chatLogs.length / CHATS_PER_PAGE);
   const paginatedLogs = chatLogs.slice(
@@ -209,25 +240,57 @@ const Support: React.FC = () => {
   const handleSendMessage = async () => {
     if (!selectedLog || !messageInput.trim()) return;
 
-    const newMessage = {
+    const newMessage: Message = {
       sender: "support",
       content: messageInput.trim(),
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     };
 
-    await updateAdminChatLog({
-      newUserLog: [newMessage],
-      clientId: selectedLog.clientId,
-    });
+    try {
+      // Update the UI immediately for better UX
+      setSelectedLog((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          userLogs: [...prev.userLogs, newMessage],
+        };
+      });
 
-    // Clear input after sending
-    setMessageInput("");
+      // Update the chat logs list immediately
+      setChatLogs((prev) =>
+        prev.map((log) =>
+          log.clientId === selectedLog.clientId
+            ? {
+                ...log,
+                userLogs: [...log.userLogs, newMessage],
+              }
+            : log
+        )
+      );
 
-    // Refresh logs after update
-    const logs = await getAdminSupportLogs();
-    setChatLogs(logs || []);
-    const updatedLog = logs.find((log: any) => log._id === selectedLog._id);
-    setSelectedLog(updatedLog || logs[0] || null);
+      // Clear input after sending
+      setMessageInput("");
+
+      // Send to server
+      await updateAdminChatLog({
+        newUserLog: [
+          {
+            ...newMessage,
+            timestamp: newMessage.timestamp.toISOString(), // Convert to ISO string for server
+          },
+        ],
+        clientId: selectedLog.clientId,
+      });
+
+      // Refresh logs after update to ensure consistency
+      const logs = await getAdminSupportLogs();
+      setChatLogs(logs || []);
+      const updatedLog = logs.find((log: any) => log._id === selectedLog._id);
+      setSelectedLog(updatedLog || logs[0] || null);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      // Optionally show an error message to the user
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
