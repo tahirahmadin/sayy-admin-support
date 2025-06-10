@@ -58,7 +58,7 @@ const Support: React.FC = () => {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      let connectionTimeout: NodeJS.Timeout;
+      let connectionTimeout: ReturnType<typeof setTimeout>;
 
       ws.onopen = () => {
         console.log("WebSocket connection established successfully");
