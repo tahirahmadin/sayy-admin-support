@@ -198,9 +198,7 @@ const Support: React.FC = () => {
     const fetchLogs = async () => {
       try {
         setLoading(true);
-        const apiUrl = import.meta.env.DEV
-          ? "/api" // Use proxy in development
-          : "https://kifortestapi.gobbl.ai"; // Use direct URL in production
+
         const logs = await getAdminSupportLogs();
         if (!signal.aborted) {
           console.log("logs", logs);
