@@ -44,7 +44,7 @@ const getHmacMessageFromBody = (inputBodyData: string) => {
 
 export async function getAdminSupportLogs() {
   try {
-    let url = `/api/admin/getSupportChatLogs`;
+    let url = `${apiUrl}/admin/getSupportChatLogs`;
 
     // HMAC Response
     let hmacResponse = getHmacMessageFromBody("");
