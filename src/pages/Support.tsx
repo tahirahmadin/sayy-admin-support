@@ -28,7 +28,7 @@ const Support: React.FC = () => {
   const [isOnline, setIsOnline] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const connectWebSocket = () => {
