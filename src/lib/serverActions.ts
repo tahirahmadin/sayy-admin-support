@@ -112,11 +112,6 @@ export async function updateAdminChatLog(params: UpdateChatLogParams) {
     const axiosHeaders = {
       HMAC: hmacResponse.hmacHash,
       Timestamp: hmacResponse.currentTimestamp,
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers":
-        "Content-Type, Authorization, HMAC, Timestamp",
-      "Content-Type": "application/json",
     };
 
     const response = await axios.post(url, encryptedData, {
