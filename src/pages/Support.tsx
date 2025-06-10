@@ -16,6 +16,7 @@ interface ChatLog {
   clientId: string;
   chatTitle: string;
   userLogs: Message[];
+  hasUnread?: boolean;
 }
 
 const Support: React.FC = () => {
@@ -31,73 +32,109 @@ const Support: React.FC = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const connectWebSocket = () => {
-    if (!selectedLog?.clientId) return;
+    if (!selectedLog?.clientId) {
+      console.log("No clientId available, skipping WebSocket connection");
+      return;
+    }
+
+    // Prevent multiple connection attempts
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log("WebSocket already connected, skipping new connection");
+      return;
+    }
 
     // Close existing connection if any
     if (wsRef.current) {
+      console.log("Closing existing WebSocket connection");
       wsRef.current.close();
+      wsRef.current = null;
     }
 
-    // Create new WebSocket connection
-    const wsUrl = `${backendSocketUrl}/socket.io/?client-id=support`;
-    console.log("Connecting to WebSocket:", wsUrl);
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    try {
+      // Create new WebSocket connection
+      const wsUrl = `${backendSocketUrl}/socket.io/?client-id=support`;
+      console.log("Attempting to connect to WebSocket:", wsUrl);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log("WebSocket connected");
-      setIsOnline(true);
-    };
-
-    ws.onclose = (event) => {
-      console.log("WebSocket disconnected:", event.code, event.reason);
-      setIsOnline(false);
-
-      // Attempt to reconnect after delay
-      reconnectTimeoutRef.current = setTimeout(() => {
-        console.log("Attempting to reconnect...");
-        connectWebSocket();
-      }, WS_RECONNECT_DELAY);
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setIsOnline(false);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("Received message:", data);
-
-        if (data.clientId && data.message && data.type === "chatUpdated") {
-          // Update the selected log with the new message
-          const newMessage: Message = {
-            content: data.message.content,
-            sender: data.message.sender,
-            timestamp: new Date(data.message.timestamp),
-          };
-          setSelectedLog((prev) => {
-            if (!prev) return null;
-            return {
-              ...prev,
-              userLogs: [...prev.userLogs, newMessage],
-            };
-          });
-
-          // Update the chat logs list
-          setChatLogs((prev) =>
-            prev.map((log) =>
-              log.clientId === selectedLog.clientId
-                ? { ...log, userLogs: [...log.userLogs, data.message] }
-                : log
-            )
-          );
+      ws.onopen = () => {
+        console.log("WebSocket connection established successfully");
+        setIsOnline(true);
+        // Clear any existing reconnect timeout
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = undefined;
         }
-      } catch (err) {
-        console.error("Error parsing WebSocket message:", err);
-      }
-    };
+      };
+
+      ws.onclose = (event) => {
+        console.log("WebSocket connection closed:", {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+        });
+        setIsOnline(false);
+        wsRef.current = null;
+
+        // Only attempt to reconnect if the connection was lost unexpectedly
+        // and we're not already trying to reconnect
+        if (!reconnectTimeoutRef.current && event.code !== 1000) {
+          console.log("Scheduling reconnection attempt...");
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log("Executing scheduled reconnection...");
+            reconnectTimeoutRef.current = undefined;
+            connectWebSocket();
+          }, WS_RECONNECT_DELAY);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error occurred:", error);
+        setIsOnline(false);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("Received WebSocket message:", data);
+
+          if (data.clientId && data.message && data.type === "chatUpdated") {
+            // Update the selected log with the new message
+            const newMessage: Message = {
+              content: data.message.content,
+              sender: data.message.sender,
+              timestamp: new Date(data.message.timestamp),
+            };
+            setSelectedLog((prev) => {
+              if (!prev || prev.clientId !== data.clientId) return prev;
+              return {
+                ...prev,
+                userLogs: [...prev.userLogs, newMessage],
+                hasUnread: false,
+              };
+            });
+
+            // Update the chat logs list
+            setChatLogs((prev) =>
+              prev.map((log) =>
+                log.clientId === data.clientId
+                  ? {
+                      ...log,
+                      userLogs: [...log.userLogs, data.message],
+                      hasUnread: log.clientId !== selectedLog?.clientId,
+                    }
+                  : log
+              )
+            );
+          }
+        } catch (err) {
+          console.error("Error parsing WebSocket message:", err);
+        }
+      };
+    } catch (error) {
+      console.error("Error creating WebSocket connection:", error);
+      setIsOnline(false);
+    }
   };
 
   // Fetch chat logs on mount
@@ -138,17 +175,21 @@ const Support: React.FC = () => {
 
   // WebSocket connection when selected log changes
   useEffect(() => {
+    console.log("Selected log changed, clientId:", selectedLog?.clientId);
     if (selectedLog?.clientId) {
       connectWebSocket();
     }
 
     // Cleanup on unmount or when selected log changes
     return () => {
+      console.log("Cleaning up WebSocket connection");
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = undefined;
       }
       if (wsRef.current) {
-        wsRef.current.close();
+        wsRef.current.close(1000, "Component unmounting");
+        wsRef.current = null;
       }
     };
   }, [selectedLog?.clientId]);
@@ -196,6 +237,16 @@ const Support: React.FC = () => {
     }
   };
 
+  const handleSelectChat = (log: ChatLog) => {
+    setSelectedLog(log);
+    // Clear unread status when selecting a chat
+    setChatLogs((prev) =>
+      prev.map((chat) =>
+        chat.clientId === log.clientId ? { ...chat, hasUnread: false } : chat
+      )
+    );
+  };
+
   return (
     <div className="h-[calc(100vh-4rem)] flex bg-gray-50">
       {/* Sidebar */}
@@ -214,30 +265,75 @@ const Support: React.FC = () => {
           ) : paginatedLogs.length === 0 ? (
             <div className="p-4 text-gray-500">No chat logs found.</div>
           ) : (
-            paginatedLogs.map((log) => (
-              <div
-                key={log._id}
-                className={`p-3 cursor-pointer border-b border-gray-100 transition-colors duration-150
-                  ${
-                    selectedLog && selectedLog._id === log._id
-                      ? "bg-indigo-50 border-l-4 border-indigo-500"
-                      : "hover:bg-gray-50"
-                  }`}
-                onClick={() => setSelectedLog(log)}
-              >
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-800 truncate">
-                    {log.chatTitle}
-                  </span>
+            paginatedLogs.map((log) => {
+              const lastMessage = log.userLogs[log.userLogs.length - 1];
+              const lastMessageTime = lastMessage
+                ? new Date(lastMessage.timestamp)
+                : null;
+
+              return (
+                <div
+                  key={log._id}
+                  className={`p-3 cursor-pointer border-b border-gray-100 transition-all duration-300 relative
+                    ${
+                      selectedLog && selectedLog._id === log._id
+                        ? "bg-indigo-50 border-l-4 border-indigo-500"
+                        : "hover:bg-gray-50"
+                    }
+                    ${
+                      log.hasUnread
+                        ? "bg-blue-50 border-l-4 border-blue-500 animate-pulse-subtle"
+                        : ""
+                    }
+                  `}
+                  onClick={() => handleSelectChat(log)}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-medium text-gray-800 truncate">
+                          {log.chatTitle}
+                        </span>
+                        {log.hasUnread && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                            New
+                          </span>
+                        )}
+                      </div>
+                      {lastMessage && (
+                        <div className="mt-1 text-sm text-gray-600 truncate">
+                          <span className="font-medium">
+                            {lastMessage.sender}:{" "}
+                          </span>
+                          {lastMessage.content}
+                        </div>
+                      )}
+                    </div>
+                    {log.hasUnread && (
+                      <div className="flex items-center space-x-2 ml-2">
+                        <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1 flex justify-between items-center">
+                    {lastMessageTime && (
+                      <span className="text-gray-500">
+                        {lastMessageTime.toLocaleDateString()} at{" "}
+                        {lastMessageTime.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    )}
+                    {log.hasUnread && (
+                      <span className="text-blue-600 text-xs font-medium">
+                        Unread message
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {log.userLogs.length > 0 &&
-                    new Date(
-                      log.userLogs[log.userLogs.length - 1].timestamp
-                    ).toLocaleString()}
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
         <div className="p-2 flex justify-between items-center border-t border-gray-200 bg-gray-50">
