@@ -45,20 +45,27 @@ const getHmacMessageFromBody = (inputBodyData: string) => {
 export async function getAdminSupportLogs() {
   try {
     let url = `${apiUrl}/admin/getSupportChatLogs`;
+    console.log("Making API request to:", url);
 
     // HMAC Response
     let hmacResponse = getHmacMessageFromBody("");
     if (!hmacResponse) {
+      console.error("HMAC authentication failed: VITE_HMAC_KEY is not set");
       return null;
     }
+    console.log("HMAC authentication successful");
+
     let axiosHeaders = {
       HMAC: hmacResponse.hmacHash,
       Timestamp: hmacResponse.currentTimestamp,
     };
+    console.log("Request headers:", axiosHeaders);
 
     let response = await axios
       .get(url, { headers: axiosHeaders })
       .then((res) => res.data);
+
+    console.log("API Response:", response);
 
     if (response.error) {
       throw new Error(response.error);
@@ -66,6 +73,14 @@ export async function getAdminSupportLogs() {
     return response.result;
   } catch (error) {
     console.error("Error fetching admin chat logs:", error);
+    if (axios.isAxiosError(error)) {
+      console.error("Axios error details:", {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+      });
+    }
     throw error;
   }
 }
