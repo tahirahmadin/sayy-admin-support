@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { getAdminSupportLogs, updateAdminChatLog } from "../lib/serverActions";
 import { backendSocketUrl } from "../utils/constants";
+import { getIpAddress } from "../utils/ipUtils";
 
 const CHATS_PER_PAGE = 5;
 const WS_RECONNECT_DELAY = 2000;
@@ -8,6 +9,7 @@ const WS_RECONNECT_DELAY = 2000;
 interface Message {
   sender: string;
   content: string;
+
   timestamp: Date;
 }
 
@@ -31,7 +33,7 @@ const Support: React.FC = () => {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const connectWebSocket = () => {
+  const connectWebSocket = async () => {
     // Prevent multiple connection attempts
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log("WebSocket already connected, skipping new connection");
@@ -53,7 +55,9 @@ const Support: React.FC = () => {
 
     try {
       // Create new WebSocket connection
-      const wsUrl = `${backendSocketUrl}/socket.io/?client-id=support`;
+      const ip = await getIpAddress();
+      console.log("ip", ip);
+      const wsUrl = `${backendSocketUrl}/socket.io/?client-id=support&ip=${ip}`;
       console.log("Attempting to connect to WebSocket:", wsUrl);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -117,7 +121,7 @@ const Support: React.FC = () => {
           console.log("WebSocket connection timeout");
           ws.close();
         }
-      }, 10000); // 10 second timeout
+      }, 60000); // 10 second timeout
 
       ws.onmessage = (event) => {
         try {
