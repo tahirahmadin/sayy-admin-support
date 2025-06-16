@@ -94,7 +94,6 @@ interface Message {
 interface UpdateChatLogParams {
   newUserLog: Message[];
   clientId: string;
-  ip: string;
 }
 
 export async function updateAdminChatLog(params: UpdateChatLogParams) {

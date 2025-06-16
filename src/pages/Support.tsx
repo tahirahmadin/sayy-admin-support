@@ -55,9 +55,8 @@ const Support: React.FC = () => {
 
     try {
       // Create new WebSocket connection
-      const ip = await getIpAddress();
-      console.log("ip", ip);
-      const wsUrl = `${backendSocketUrl}/socket.io/?client-id=support&ip=${ip}`;
+
+      const wsUrl = `${backendSocketUrl}/socket.io/?client-id=support`;
       console.log("Attempting to connect to WebSocket:", wsUrl);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -275,8 +274,6 @@ const Support: React.FC = () => {
 
       // Clear input after sending
       setMessageInput("");
-      const ip = await getIpAddress();
-      console.log("ip", ip);
 
       // Send to server
       await updateAdminChatLog({
@@ -287,7 +284,6 @@ const Support: React.FC = () => {
           },
         ],
         clientId: selectedLog.clientId,
-        ip: ip,
       });
 
       // Refresh logs after update to ensure consistency
