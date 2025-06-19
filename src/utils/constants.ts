@@ -1,2 +1,2 @@
-export const backendSocketUrl = "wss://kifortestapi.gobbl.ai";
-export const backendUrl = "https://kifortestapi.gobbl.ai";
+export const backendSocketUrl = "wss://kiforapi.gobbl.ai";
+export const backendUrl = "https://kiforapi.gobbl.ai";
