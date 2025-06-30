@@ -2,7 +2,7 @@ import axios from "axios";
 
 const apiUrl = import.meta.env.DEV
   ? "/api" // Use proxy in development
-  : "https://kifortestapi.gobbl.ai"; // Use direct URL in production
+  : "https://api.sayy.ai"; // Use direct URL in production
 
 import CryptoJS from "crypto-js";
 
