@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { getAdminSupportLogs, updateAdminChatLog } from "../lib/serverActions";
 import { backendSocketUrl } from "../utils/constants";
-import { getIpAddress } from "../utils/ipUtils";
 
 const CHATS_PER_PAGE = 5;
 const WS_RECONNECT_DELAY = 2000;
